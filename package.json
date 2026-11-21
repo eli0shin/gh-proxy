@@ -1,0 +1,31 @@
+{
+  "name": "gh-proxy",
+  "version": "0.1.0",
+  "description": "A shared, batched, cached GitHub reader for PR Watch, Review, and agent-status",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "ghp": "src/cli.ts"
+  },
+  "scripts": {
+    "build": "bun build src/cli.ts --compile --outfile ghp",
+    "dev": "bun run src/cli.ts",
+    "typecheck": "bun tsc --noEmit",
+    "test": "bun test",
+    "parity": "bun run scripts/parity.ts",
+    "install-local": "bun run build && mkdir -p ~/.local/bin && cp ghp ~/.local/bin/ghp",
+    "version": "changeset version"
+  },
+  "dependencies": {
+    "commander": "^14.0.2"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^3.0.3",
+    "@types/node": "^25.0.3",
+    "bun-types": "^1.3.5",
+    "typescript": "^5.9.3"
+  },
+  "author": "@eli0shin",
+  "license": "MIT"
+}

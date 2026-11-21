@@ -1,0 +1,110 @@
+name: Version
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      needs_binaries: ${{ steps.check-release.outputs.needs_binaries }}
+      version: ${{ steps.check-release.outputs.version }}
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun run test
+
+      - name: Create release pull request or publish
+        uses: changesets/action@v1
+        with:
+          version: bunx changeset version
+          publish: bunx changeset tag
+          title: 'chore: version packages'
+          createGithubReleases: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if the release needs binaries
+        id: check-release
+        run: |
+          VERSION="v$(jq -r .version package.json)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if ! gh release view "$VERSION" &>/dev/null; then
+            echo "No release found for $VERSION"
+            echo "needs_binaries=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ASSETS=$(gh release view "$VERSION" --json assets --jq '.assets[].name')
+          NEEDS_BINARIES=false
+          for artifact in ghp-linux-x64 ghp-linux-arm64 ghp-darwin-x64 ghp-darwin-arm64; do
+            if ! grep -Fxq "$artifact" <<< "$ASSETS"; then
+              echo "Release is missing $artifact"
+              NEEDS_BINARIES=true
+            fi
+          done
+          echo "needs_binaries=$NEEDS_BINARIES" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Each binary is built on its own platform: a darwin-arm64 binary
+  # cross-compiled on Linux fails macOS signature checks.
+  binaries:
+    needs: version
+    if: needs.version.outputs.needs_binaries == 'true'
+    name: Release ${{ matrix.artifact }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, target: bun-linux-x64, artifact: ghp-linux-x64 }
+          - { runner: ubuntu-24.04-arm, target: bun-linux-arm64, artifact: ghp-linux-arm64 }
+          - { runner: macos-15-intel, target: bun-darwin-x64, artifact: ghp-darwin-x64 }
+          - { runner: macos-15, target: bun-darwin-arm64, artifact: ghp-darwin-arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.version.outputs.version }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun build src/cli.ts --compile --target=${{ matrix.target }} --outfile ${{ matrix.artifact }}
+
+      - name: Verify Apple Silicon signature
+        if: matrix.target == 'bun-darwin-arm64'
+        run: codesign --verify --strict --verbose=2 ${{ matrix.artifact }}
+
+      - name: Start
+        run: ./${{ matrix.artifact }} --version
+
+      - name: Upload to release
+        run: gh release upload "${{ needs.version.outputs.version }}" ${{ matrix.artifact }} --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,4 @@
+node_modules/
+/ghp
+*.db
+*.db-*
