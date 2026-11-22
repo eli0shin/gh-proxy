@@ -3,6 +3,7 @@ import { Command, InvalidArgumentError, Option } from 'commander';
 import { resolve } from 'node:path';
 
 import { Engine, type ReadResult, type ResourceClass } from './engine.ts';
+import { defaultHost } from './host.ts';
 import { localBranch, localRepository } from './local.ts';
 import { prStatus } from './resources/pr-status.ts';
 import { pullRequestDetails, search } from './resources/review.ts';
@@ -112,9 +113,9 @@ withCommon(
     .argument('[repo]', 'owner/repo (default: the repository in --dir)')
     .argument('[branches...]', 'branch names (default: the current branch in --dir)')
     .option('--dir <path>', 'git checkout to read the repository and branch from')
-    .option('--host <host>', 'GitHub host for owner/repo', 'github.com'),
+    .option('--host <host>', 'GitHub host for owner/repo (default: gh\'s default host)'),
   60,
-).action(async (repo: string | undefined, branches: string[], options: CommonOptions & { dir?: string; host: string }) => {
+).action(async (repo: string | undefined, branches: string[], options: CommonOptions & { dir?: string; host?: string }) => {
   const engine = openEngine(options);
   const target = await repositoryFrom(repo, options.dir, options.host);
   const names = branches.length > 0 ? branches : [await localBranch(resolve(options.dir ?? process.cwd()))];
@@ -139,7 +140,7 @@ withCommon(
     .command('search')
     .description('a pull request search page with each row\'s size, review decision, reviews, and checks')
     .argument('<query>', 'GitHub search query')
-    .option('--host <host>', 'GitHub host', 'github.com')
+    .option('--host <host>', 'GitHub host (default: gh\'s default host)')
     .option('--size <n>', 'page size (1-100)', (value) => {
       const number = Number(value);
       if (!Number.isInteger(number) || number < 1 || number > 100) throw new InvalidArgumentError('expected 1-100');
@@ -147,10 +148,10 @@ withCommon(
     }, 25)
     .option('--after <cursor>', 'cursor of the previous page'),
   60,
-).action(async (query: string, options: CommonOptions & { host: string; size: number; after?: string }) => {
+).action(async (query: string, options: CommonOptions & { host?: string; size: number; after?: string }) => {
   const engine = openEngine(options);
   const params = { query, size: options.size, after: options.after ?? null };
-  output(await readByHost(engine, search, [{ label: query, host: options.host, params }], options), true);
+  output(await readByHost(engine, search, [{ label: query, host: options.host ?? defaultHost(), params }], options), true);
 });
 
 withCommon(
@@ -159,9 +160,9 @@ withCommon(
     .description("a branch's head commit on GitHub")
     .argument('<repo>', 'owner/repo')
     .argument('<branches...>', 'branch names')
-    .option('--host <host>', 'GitHub host for owner/repo', 'github.com'),
+    .option('--host <host>', 'GitHub host for owner/repo (default: gh\'s default host)'),
   60,
-).action(async (repo: string, branches: string[], options: CommonOptions & { host: string }) => {
+).action(async (repo: string, branches: string[], options: CommonOptions & { host?: string }) => {
   const engine = openEngine(options);
   const target = parseRepositoryTarget(repo, options.host);
   output(await readByHost(engine, branchTip, branches.map((branch) => ({ label: branch, host: target.host, params: { ...target, branch } })), options), false);
@@ -173,9 +174,9 @@ withCommon(
     .description('workflow runs for a commit, as gh run list --commit prints them')
     .argument('<repo>', 'owner/repo')
     .argument('<shas...>', 'commit SHAs')
-    .option('--host <host>', 'GitHub host for owner/repo', 'github.com'),
+    .option('--host <host>', 'GitHub host for owner/repo (default: gh\'s default host)'),
   60,
-).action(async (repo: string, shas: string[], options: CommonOptions & { host: string }) => {
+).action(async (repo: string, shas: string[], options: CommonOptions & { host?: string }) => {
   const engine = openEngine(options);
   const target = parseRepositoryTarget(repo, options.host);
   output(await readByHost(engine, workflowRuns, shas.map((sha) => ({ label: sha, host: target.host, params: { ...target, sha } })), options), false);
@@ -187,9 +188,9 @@ withCommon(
     .description('canonical name, URL, and default branch')
     .argument('[repo]', 'owner/repo (default: the repository in --dir)')
     .option('--dir <path>', 'git checkout to read the repository from (default: the current directory)')
-    .option('--host <host>', 'GitHub host for owner/repo', 'github.com'),
+    .option('--host <host>', 'GitHub host for owner/repo (default: gh\'s default host)'),
   24 * 60 * 60,
-).action(async (repo: string | undefined, options: CommonOptions & { dir?: string; host: string }) => {
+).action(async (repo: string | undefined, options: CommonOptions & { dir?: string; host?: string }) => {
   const engine = openEngine(options);
   const target = await repositoryFrom(repo, options.dir, options.host);
   const label = repo ?? `${target.owner}/${target.name}`;
@@ -198,11 +199,12 @@ withCommon(
 });
 
 withCommon(
-  program.command('whoami').description('the login of the authenticated account').option('--host <host>', 'GitHub host', 'github.com'),
+  program.command('whoami').description('the login of the authenticated account').option('--host <host>', 'GitHub host (default: gh\'s default host)'),
   24 * 60 * 60,
-).action(async (options: CommonOptions & { host: string }) => {
+).action(async (options: CommonOptions & { host?: string }) => {
   const engine = openEngine(options);
-  output(await readByHost(engine, viewer, [{ label: options.host, host: options.host, params: {} }], options), true);
+  const host = options.host ?? defaultHost();
+  output(await readByHost(engine, viewer, [{ label: host, host, params: {} }], options), true);
 });
 
 program
@@ -240,5 +242,6 @@ try {
   await program.parseAsync();
 } catch (error) {
   process.stderr.write(`ghp: ${error instanceof Error ? error.message : String(error)}\n`);
+  if (process.env.GHP_DEBUG && error instanceof Error && error.stack) process.stderr.write(`${error.stack}\n`);
   process.exitCode = error instanceof UsageError ? EXIT_USAGE : 1;
 }

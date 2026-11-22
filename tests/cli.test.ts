@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { pullRequest, startFakeGitHub, type FakeGitHub } from './fake-github.ts';
 
 const cli = join(import.meta.dir, '..', 'src', 'cli.ts');
 let fake: FakeGitHub;
+const emptyGhConfig = mkdtempSync(join(tmpdir(), 'ghp-empty-gh-config-'));
 
 beforeEach(() => {
   fake = startFakeGitHub();
@@ -17,7 +20,8 @@ async function ghp(...args: string[]): Promise<{ code: number; json: any; stderr
   const subprocess = Bun.spawn(['bun', cli, ...args], {
     stdout: 'pipe',
     stderr: 'pipe',
-    env: { ...process.env, ...fake.env(), GH_TOKEN: '', GITHUB_TOKEN: '' },
+    // An empty gh config: the default host is github.com.
+    env: { ...process.env, ...fake.env(), GH_TOKEN: '', GITHUB_TOKEN: '', GH_HOST: '', GH_CONFIG_DIR: emptyGhConfig },
   });
   const [stdout, stderr, code] = await Promise.all([
     new Response(subprocess.stdout).text(),

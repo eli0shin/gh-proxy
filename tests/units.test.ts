@@ -1,6 +1,10 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { aggregateChecks, rollupEntries, ZERO_TIME, type CheckContext } from '../src/checks.ts';
+import { defaultHost, parseHostsYaml } from '../src/host.ts';
 import { parseRemoteUrl } from '../src/local.ts';
 import { actor } from '../src/resources/actors.ts';
 import { parsePullRequestTarget, parseRepositoryTarget } from '../src/targets.ts';
@@ -100,5 +104,46 @@ describe('targets', () => {
     expect(parseRemoteUrl('ssh://git@ssh.github.com:443/acme/widgets.git')).toEqual({ host: 'github.com', owner: 'acme', name: 'widgets' });
     expect(parseRemoteUrl('https://github.com/acme/widgets')).toEqual({ host: 'github.com', owner: 'acme', name: 'widgets' });
     expect(parseRemoteUrl('/local/path')).toBeUndefined();
+  });
+});
+
+describe('defaultHost (gh\'s default host)', () => {
+  const saved = { GH_HOST: process.env.GH_HOST, GH_CONFIG_DIR: process.env.GH_CONFIG_DIR };
+  afterEach(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  const withHosts = (text: string | undefined) => {
+    const directory = mkdtempSync(join(tmpdir(), 'ghp-gh-config-'));
+    if (text !== undefined) writeFileSync(join(directory, 'hosts.yml'), text);
+    process.env.GH_CONFIG_DIR = directory;
+    delete process.env.GH_HOST;
+  };
+
+  test('GH_HOST wins', () => {
+    withHosts('ghe.corp:\n    user: eli\n');
+    process.env.GH_HOST = 'GHE.Example';
+    expect(defaultHost()).toBe('ghe.example');
+  });
+
+  test('the only signed-in host, such as an Enterprise host', () => {
+    withHosts('ghe.corp:\n    users:\n        eli: {oauth_token: x}\n    git_protocol: https\n    user: eli\n');
+    expect(defaultHost()).toBe('ghe.corp');
+  });
+
+  test('github.com with several hosts or none', () => {
+    withHosts('github.com:\n    user: eli\nghe.corp:\n    user: eli\n');
+    expect(defaultHost()).toBe('github.com');
+    withHosts(undefined);
+    expect(defaultHost()).toBe('github.com');
+  });
+
+  test('hosts.yml keys are its top-level, non-comment keys', () => {
+    expect(parseHostsYaml('# comment\ngithub.com:\n    user: a\n    git_protocol: ssh\nghe.corp: # work\n    user: b\n')).toEqual([
+      'github.com',
+      'ghe.corp',
+    ]);
   });
 });
