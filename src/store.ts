@@ -38,6 +38,7 @@ export type ReadLog = {
 };
 
 const SCHEMA_VERSION = 1;
+const WAL_SWITCH_WAIT_MS = 10_000;
 const LOG_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const ENTRY_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const INTEREST_RETENTION_MS = 24 * 60 * 60_000;
@@ -63,9 +64,26 @@ export class Store {
     chmodSync(path, 0o600);
     this.consumer = consumer;
     this.db.exec('PRAGMA busy_timeout = 10000');
-    this.db.exec('PRAGMA journal_mode = WAL');
+    this.enableWal();
     this.db.exec('PRAGMA synchronous = NORMAL');
     this.migrate();
+  }
+
+  // Switching to WAL takes an exclusive lock, and SQLite does not wait on its
+  // busy handler while another process is switching the same new file. WAL
+  // persists in the file, so only the first processes ever need this.
+  private enableWal(): void {
+    const deadline = Date.now() + WAL_SWITCH_WAIT_MS;
+    for (;;) {
+      try {
+        const mode = this.db.query<{ journal_mode: string }, []>('PRAGMA journal_mode').get()?.journal_mode;
+        if (mode !== 'wal') this.db.exec('PRAGMA journal_mode = WAL');
+        return;
+      } catch (error) {
+        if (!(error instanceof Error && /database is locked/.test(error.message)) || Date.now() > deadline) throw error;
+        Bun.sleepSync(10 + Math.random() * 40);
+      }
+    }
   }
 
   private migrate(): void {

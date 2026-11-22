@@ -15,7 +15,7 @@ The installer puts `ghp` in `~/.local/bin`. Run it again to update.
 Requirements:
 
 - x64 or arm64 macOS, or glibc Linux.
-- [GitHub CLI](https://cli.github.com/) authenticated with `gh auth login`. `ghp` reads its token with `gh auth token --hostname <host>`, unless `GH_TOKEN`/`GITHUB_TOKEN` (github.com) or `GH_ENTERPRISE_TOKEN` (other hosts) is set. `ghp` never stores the token.
+- [GitHub CLI](https://cli.github.com/) authenticated with `gh auth login`. `ghp` reads its token with `gh auth token --hostname <host>`, unless `GH_TOKEN`/`GITHUB_TOKEN` (github.com) or `GH_ENTERPRISE_TOKEN` (other hosts) is set. `ghp` never stores the token. Targets without a host, such as `owner/repo#12`, `ghp search`, and `ghp whoami`, use gh's default host: `GH_HOST`, else the only host gh is signed in to, else github.com. `--host` overrides it.
 
 ## How a read works
 
