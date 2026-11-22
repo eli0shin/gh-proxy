@@ -1,6 +1,6 @@
 {
   "name": "gh-proxy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A shared, batched, cached GitHub reader for PR Watch, Review, and agent-status",
   "type": "module",
   "private": true,
